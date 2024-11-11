@@ -48,5 +48,5 @@ curl --location --request DELETE 'localhost:3000/api/users/10'
 # Unit test with Docker
 
 ```bash
-docker docker-compose run api yarn test
+docker-compose run api yarn test
 ``` 
