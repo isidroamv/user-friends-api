@@ -1,0 +1,94 @@
+name: AI Unified PR Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get PR Diff with Context
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git diff --unified=3 --diff-filter=M origin/${{ github.event.pull_request.base.ref }} > pr_diff.txt
+
+      - name: Get Changed Files List
+        run: |
+          git diff --name-only origin/${{ github.event.pull_request.base.ref }} > changed_files.txt
+
+      - name: Generate Unified AI Reviews
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          echo "[]" > unified_reviews.json
+          while IFS= read -r file; do
+            # Skip deleted files.
+            if [ ! -f "$file" ]; then
+              continue
+            fi
+
+            # Extract the diff snippet for this file from pr_diff.txt.
+            file_diff=$(awk -v file="$file" 'BEGIN {flag=0} 
+              /^diff --git/ {
+                if ($0 ~ "a/"file" b/"file) {flag=1; print; next}
+                else { if(flag==1){flag=0} }
+              }
+              { if(flag==1) print }
+            ' pr_diff.txt)
+
+            # Read the full file content and escape it for JSON.
+            file_content=$(jq -Rs . < "$file")
+
+            # Build a prompt that includes both the diff and the full file.
+            prompt="You are a senior code reviewer. Review the following file for both the specific changes and overall quality.
+
+            File: $file
+
+            --- Diff of Changes ---
+            $file_diff
+
+            --- Full File Content ---
+            $file_content
+
+            Provide detailed, actionable feedback including line-by-line suggestions and overall improvements in readability, maintainability, performance, and style."
+
+            # Call the OpenAI API.
+            response=$(curl -s -X POST "https://api.openai.com/v1/chat/completions" \
+              -H "Authorization: Bearer $OPENAI_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "model": "gpt-3.5-turbo",
+                "messages": [
+                  {"role": "system", "content": "You are a professional code reviewer."},
+                  {"role": "user", "content": "'"${prompt}"'"}
+                ],
+                "max_tokens": 300
+              }')
+
+            unified_review=$(echo "$response" | jq -r '.choices[0].message.content')
+
+            if [[ -n "$unified_review" && "$unified_review" != "null" ]]; then
+              # Escape the review text to safely include it in JSON.
+              escaped_unified_review=$(echo "$unified_review" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+              jq --arg file "$file" --arg body "$escaped_unified_review" \
+                '. += [{"path": $file, "body": $body}]' unified_reviews.json > temp.json && mv temp.json unified_reviews.json
+            fi
+          done < changed_files.txt
+
+      - name: Post Unified AI Review to GitHub PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REVIEWS=$(cat unified_reviews.json)
+          if [ "$REVIEWS" != "[]" ]; then
+            review_body="### AI Unified Review Suggestions\n\n"
+            review_body+=$(jq -r '.[] | "- **File: " + .path + "**\n" + .body + "\n\n"' unified_reviews.json)
+            payload=$(jq -n --arg body "$review_body" '{body: $body, event: "COMMENT"}')
+            curl -s -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+              -d "$payload"
