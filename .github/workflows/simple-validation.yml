@@ -1,0 +1,19 @@
+name: Simple Validation Workflow
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate PR Trigger
+        run: |
+          echo "Pull request has been opened or synchronized."
+          echo "Current GitHub event name: $GITHUB_EVENT_NAME"
+          echo "Current GitHub event type: $GITHUB_EVENT_TYPE"
