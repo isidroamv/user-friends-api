@@ -1,22 +1,23 @@
-name: AI Code Reviewer
+name: AI Code Review
 
 on:
   pull_request:
-    types:
-      - opened
-      - synchronize
-permissions: write-all
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v3
+    types: [opened, synchronize, reopened, ready_for_review]
 
-      - name: AI Code Reviewer
-        uses: your-username/ai-code-reviewer@main
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # The GITHUB_TOKEN is there by default so you just need to keep it like it is and not necessarily need to add it as secret as it will throw an error. [More Details](https://docs.github.com/en/actions/security-guides/automatic-token-authentication#about-the-github_token-secret)
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_MODEL: "gpt-4" # Optional: defaults to "gpt-4"
-          exclude: "**/*.json, **/*.md" # Optional: exclude patterns separated by commas
+jobs:
+  ai_code_review:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: AI Code Review
+      uses: AleksandrFurmenkovOfficial/ai-code-review@v0.4.1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }} # Token for accessing PRs, file reading, and commenting capabilities
+        openai_api_key: ${{ secrets.OPENAI_API_KEY }} # Access to the GPT-4 class model
+        owner: ${{ github.repository_owner }}
+        repo: ${{ github.event.repository.name }}
+        pr_number: ${{ github.event.number }}
+        include_extensions: ${{ steps.inputs.include_extensions }} # Optional, specify file types to include e.g., ".py,.js,.html"
+        exclude_extensions: ${{ steps.inputs.exclude_extensions }} # Optional, specify file types to exclude
+        include_paths: ${{ steps.inputs.include_paths }} # Optional, specify directories to include
+        exclude_paths: ${{ steps.inputs.exclude_paths }} # Optional, specify directories to exclude
